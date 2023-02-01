@@ -1,0 +1,447 @@
+---
+title: "Bike-sharing analysis"
+author: "Raquel Peralta"
+date: "2022-12-09"
+output: html_document
+---
+
+# Exploratory analysis for the bike-sharing case study
+
+The director of marketing believes the company’s future success depends on maximizing the number of annual memberships.
+Therefore, the team wants to understand how casual riders and annual members use Cyclistic bikes differently. 
+From these insights, the team will design a new marketing strategy to convert casual riders into annual members.
+
+Customers who purchase single-ride or full-day passes are referred to as casual riders.  
+Customers who purchase annual memberships are Cyclistic members.
+
+**Business task**: How do annual members and casual riders use Cyclistic bikes differently?
+
+
+  
+## 1. Setting up the environment
+
+```{r Environment, echo=TRUE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lubridate)
+library(here)
+library(skimr)
+library(janitor)
+```
+
+
+  
+## 2. Importing the datasets
+
+I downloaded the fictional company Cyclist's data for the period from the 2nd quarter of 2019 to the 1st quarter of 2020 as 4 csv files, one for each quarter.
+
+```{r Import data, echo=TRUE, message=FALSE, warning=FALSE}
+getwd()
+setwd("C:/Users/raque/Documents/Data Analytics/Google capstone bike-sharing/raw data") 
+getwd()
+
+q2_2019 <- read_csv("Divvy_Trips_2019_Q2.csv")
+q3_2019 <- read_csv("Divvy_Trips_2019_Q3.csv")
+q4_2019 <- read_csv("Divvy_Trips_2019_Q4.csv")
+q1_2020 <- read_csv("Divvy_Trips_2020_Q1.csv")
+```
+
+
+  
+## 3. Getting to know the data:
+
+For each file, we want to check:  
+
+* how many observations do we have,   
+* which columns do we have,   
+* how many missing values do they have,   
+* how many unique values each character variable has,   
+* minimum, maximums, and means of numeric variables,   
+* minimum and maximum dates.   
+
+```{r View data q2_2019, echo=TRUE, message=FALSE, warning=FALSE}
+skim_without_charts(q2_2019)
+```
+
+
+```{r View data q3_2019, echo=TRUE, message=FALSE, warning=FALSE}
+skim_without_charts(q3_2019)
+```
+
+
+```{r View data q4_2019, echo=TRUE, message=FALSE, warning=FALSE}
+skim_without_charts(q4_2019)
+```
+
+
+```{r View data q1_2020, echo=TRUE, message=FALSE, warning=FALSE}
+skim_without_charts(q1_2020)
+```
+
+We can see that the oldest file has very different column names.  
+And the most recent file doesn't include some columns and brings new columns instead.  
+Also, the bike_id and ride_id start as numerical values but became characters in the 2020 file.  
+
+
+  
+## 4. Cleaning the data:
+
+### Changing column names
+
+I will change the older versions to the most recent version of column names.
+
+```{r Change column names, echo=TRUE, message=FALSE, warning=FALSE}
+q2_2019 <- rename(q2_2019
+                  ,ride_id = "01 - Rental Details Rental ID"
+                  ,rideable_type = "01 - Rental Details Bike ID" 
+                  ,started_at = "01 - Rental Details Local Start Time"  
+                  ,ended_at = "01 - Rental Details Local End Time"  
+                  ,start_station_name = "03 - Rental Start Station Name" 
+                  ,start_station_id = "03 - Rental Start Station ID"
+                  ,end_station_name = "02 - Rental End Station Name" 
+                  ,end_station_id = "02 - Rental End Station ID"
+                  ,member_casual = "User Type")
+
+q3_2019 <- rename(q3_2019
+                  ,ride_id = trip_id
+                  ,rideable_type = bikeid 
+                  ,started_at = start_time  
+                  ,ended_at = end_time  
+                  ,start_station_name = from_station_name 
+                  ,start_station_id = from_station_id 
+                  ,end_station_name = to_station_name 
+                  ,end_station_id = to_station_id 
+                  ,member_casual = usertype)
+
+q4_2019 <- rename(q4_2019
+                  ,ride_id = trip_id
+                  ,rideable_type = bikeid 
+                  ,started_at = start_time  
+                  ,ended_at = end_time  
+                  ,start_station_name = from_station_name 
+                  ,start_station_id = from_station_id 
+                  ,end_station_name = to_station_name 
+                  ,end_station_id = to_station_id 
+                  ,member_casual = usertype)
+```
+
+
+### Changing column formats
+
+I will change the numerical columns to character columns because we can store the numerical IDs as text, but we can't store an alphanumerical ID as a number.
+
+```{r Change columns formats, echo=TRUE, message=FALSE, warning=FALSE}
+q2_2019 <-  mutate(q2_2019, ride_id = as.character(ride_id)
+                   ,rideable_type = as.character(rideable_type)) 
+
+q3_2019 <-  mutate(q3_2019, ride_id = as.character(ride_id)
+                   ,rideable_type = as.character(rideable_type)) 
+
+q4_2019 <-  mutate(q4_2019, ride_id = as.character(ride_id)
+                   ,rideable_type = as.character(rideable_type)) 
+```
+
+
+### Removing columns
+
+Since some columns are not present in all of the files, we will not use them.  
+The lat, long, birth year and gender are not needed for the analysis.  
+The trip duration is an interesting indicator, but I will calculate it using the start and end time for all of the joined data.
+
+```{r Remove columns, echo=TRUE, message=FALSE, warning=FALSE}
+q2_2019 <- q2_2019 %>%  
+  select(-c("01 - Rental Details Duration In Seconds Uncapped", "05 - Member Details Member Birthday Year", "Member Gender"))
+
+q3_2019 <- q3_2019 %>%  
+  select(-c(birthyear, gender, tripduration))
+
+q4_2019 <- q4_2019 %>%  
+  select(-c(birthyear, gender, tripduration))
+
+q1_2020 <- q1_2020 %>% 
+  select(-c(start_lat, start_lng, end_lat, end_lng))
+```
+
+
+  
+## 5. Merging data
+
+Right now we have 4 data frames with the same structure. 
+I will merge them into a single data frame so that I can perform calculations using all the information.
+
+```{r Merge data, echo=TRUE, message=FALSE, warning=FALSE}
+all_trips <- bind_rows(q2_2019, q3_2019, q4_2019, q1_2020)
+```
+
+Now we can visualize the single table:
+```{r View data all_trips, echo=TRUE, message=FALSE, warning=FALSE}
+skim_without_charts(all_trips)
+```
+
+The member_casual column has 4 unique values instead of the 2 we saw in the 4 files individually.  
+There is 1 observation with a missing end station id and name. However, we have the end time.  
+
+We can also see in the started_at variable how the minimum is 2019-04-01 (in the 2nd quarter of 2019) and the maximum is 31-03-2020 (in the 1st quarter of 2020).
+
+
+  
+## 6. Calculations and more cleaning
+
+In this section, we will create calculated columns for our new data frame:   
+
+* It might be useful to aggregate dates by year, month, and day.  
+* We want to correct the values for the member_casual column.  
+* We need to calculate the trip duration.  
+* There are observations related to quality check trips to be removed.  
+
+### Calculate date columns
+
+```{r Calculate date columns, echo=TRUE, message=FALSE, warning=FALSE, paged.print=FALSE}
+all_trips$date <- as.Date(all_trips$started_at)
+all_trips$month <- format(as.Date(all_trips$date), "%m")
+all_trips$day <- format(as.Date(all_trips$date), "%d")
+all_trips$year <- format(as.Date(all_trips$date), "%Y")
+all_trips$day_of_week <- format(as.Date(all_trips$date), "%a")
+
+head(all_trips)
+```
+
+My days of the week are appearing in portuguese. 
+After some research I found the solution below: [link](https://stackoverflow.com/questions/17031002/get-weekdays-in-english-in-r)
+
+```{r Change day of week to english, echo=TRUE, message=FALSE, warning=FALSE}
+# to check current value
+Sys.getlocale("LC_TIME") 
+
+# to change it to english
+Sys.setlocale("LC_TIME","en_US") 
+
+# to calculate day of the week in english
+all_trips$day_of_week <- format(as.Date(all_trips$date), "%a") 
+
+# check new calculated values
+head(all_trips) 
+
+# to change back the value to the inicial
+Sys.setlocale("LC_TIME","Portuguese_Portugal.utf8") 
+```
+
+
+### Correct the member_casual column
+
+```{r Check member_casual, echo=TRUE, message=FALSE, warning=FALSE}
+table(all_trips$member_casual)
+```
+
+It seems that older files had the names "Customer" and "Subscriber". 
+I will change these names to the current names.
+
+```{r Correct member_casual, echo=TRUE, message=FALSE, warning=FALSE}
+all_trips <-  all_trips %>% 
+  mutate(member_casual = recode(member_casual
+                                ,"Subscriber" = "member"
+                                ,"Customer" = "casual"))
+
+table(all_trips$member_casual)
+```
+
+### Calculate the duration of each trip
+
+We had to delete existing data regarding the duration of the trip, but we can re-calculate it with the difference between the end and start times.
+
+```{r Calculate ride length, echo=TRUE, message=FALSE, warning=FALSE}
+all_trips$ride_length_seconds <- as.numeric(as.character(difftime(all_trips$ended_at,all_trips$started_at)))
+```
+
+We can check the new column:
+
+```{r View data ride length, echo=TRUE, message=FALSE, warning=FALSE}
+summary(all_trips$ride_length_seconds) 
+```
+
+There are negative numbers as ride length, which cannot be correct. 
+We can investigate further:
+
+```{r View data negative length, echo=TRUE, message=FALSE, warning=FALSE}
+negative_ride_length_seconds <- all_trips %>%
+  filter(ride_length_seconds < 0) 
+
+head(negative_ride_length_seconds)
+skim_without_charts(negative_ride_length_seconds)
+```
+
+There are 130 observations where the end time is before the start time. 
+We will remove this observations from our analysis.
+
+```{r Create v2, echo=TRUE, message=FALSE, warning=FALSE}
+all_trips_v2 <- all_trips %>%
+  filter(ride_length_seconds >= 0) 
+
+head(all_trips_v2)
+skim_without_charts(all_trips_v2)
+```
+
+We can validate that the initial 3879822 rows minus the 130 removed is equal to 3879692 which corresponds to the number of observations in the v2 data frame.
+Also, notice that the observation with the missing end station was removed in this step.
+
+
+### Remove irrelevant data
+
+The team was informed that the data includes entries when bikes were taken out of docks and checked for quality by Divvy. These trips have a station name "HQ QR".
+
+```{r View data HQ rides, echo=TRUE, message=FALSE, warning=FALSE}
+hq_trips <- all_trips_v2 %>%
+  filter(start_station_name == "HQ QR" | end_station_name == "HQ QR")
+
+head(hq_trips)
+skim_without_charts(hq_trips)
+```
+
+There are 3651 observations related to HQ trips.
+
+```{r Remove data HQ rides, echo=TRUE, message=FALSE, warning=FALSE}
+all_trips_v3 <- all_trips_v2 %>%
+  filter(all_trips_v2$start_station_name != "HQ QR" & all_trips_v2$end_station_name != "HQ QR")
+
+head(all_trips_v3)
+skim_without_charts(all_trips_v3)
+```
+
+
+We can validate that the initial 3879692 rows minus the 3651 removed is equal to 3876041 which corresponds to the number of observations in the v3 dataframe.
+
+
+  
+## 7. Exploratory analysis
+
+### Compare the ride length of the 2 types of users
+
+The first thought is how different are ride lengths from one type of user to the other type.
+
+```{r Compare ride length, echo=TRUE, message=FALSE, warning=FALSE}
+aggregate(all_trips_v3$ride_length_seconds ~ all_trips_v3$member_casual, FUN = mean)
+
+aggregate(all_trips_v3$ride_length_seconds ~ all_trips_v3$member_casual, FUN = median)
+
+aggregate(all_trips_v3$ride_length_seconds ~ all_trips_v3$member_casual, FUN = max)
+
+aggregate(all_trips_v3$ride_length_seconds ~ all_trips_v3$member_casual, FUN = min)
+```
+
+The mean and median ride length is significantly larger for casual members
+
+We can also visualize the results in a violin:
+
+```{r Ride length violin, echo=TRUE, message=FALSE, warning=FALSE}
+ggplot(all_trips_v3) + 
+  geom_violin(mapping = aes(x = member_casual, y = ride_length_seconds)) +
+  labs(title = "Distribution of ride length per type of rider", 
+       caption = "Data from April 1st 2019 to March 31st 2020",
+       x = "Type of rider",
+       y = "Ride length in seconds")
+```
+
+Because of the longer rides, it is very hard to visualize the body of the violin. 
+Just to have a clearer idea, I'm going to apply a filter on ride length to "zoom in" on the data.
+
+```{r Ride length violin v2, echo=TRUE, message=FALSE, warning=FALSE}
+all_trips_v3 %>% 
+  filter(ride_length_seconds < 10000) %>%
+  ggplot() + geom_violin(mapping = aes(x = member_casual, y = ride_length_seconds)) +
+  labs(title = "Distribution of ride length per type of rider", 
+       subtitle = "Ride length bellow 10 000 seconds",
+       caption = "Data from April 1st 2019 to March 31st 2020",
+       x = "Type of rider",
+       y = "Ride length in seconds")
+```
+
+
+Members tend to have shorter rides, with high frequency of the same lengths. It would make sense if we assumed these were users that frequently used the bikes for the same trajectory, for example, going to work.  
+Casual users have a broader range of lengths, with more frequent long rides than members.
+
+
+### Compare ride length throughout the week
+
+The second thought is how these users' rides change with the day of the week.
+
+```{r Compare ride length per day of week, echo=TRUE, message=FALSE, warning=FALSE}
+aggregate(all_trips_v3$ride_length_seconds ~ all_trips_v3$member_casual + all_trips_v3$day_of_week, FUN = mean)
+```
+
+The day of the week is out of order. They appear in alphabetical order instead of chronological order.  
+I changed the levels of this factor to manually determine the order I want.
+
+```{r Change day of week order, echo=TRUE, message=FALSE, warning=FALSE}
+all_trips_v3$day_of_week <- factor(all_trips_v3$day_of_week, 
+                                   levels=c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat","Sun"))
+```
+
+Now we can check the same table again.
+
+```{r Compare ride length per day of week v2, echo=TRUE, message=FALSE, warning=FALSE}
+aggregate(all_trips_v3$ride_length_seconds ~ all_trips_v3$member_casual + all_trips_v3$day_of_week, FUN = mean)
+```
+
+
+We can also visualize the results in a grouped bar chart:
+
+```{r Ride length grouped bar chart, echo=TRUE, message=FALSE, warning=FALSE}
+ggplot(all_trips_v3, aes(x = day_of_week, 
+                         fill = member_casual,
+                         y = ride_length_seconds)) + 
+  geom_bar(position = "dodge", 
+           stat = "summary",
+           fun = "mean") +
+  labs(title = "Mean ride length per type of rider throughout the week", 
+       caption = "Data from April 1st 2019 to March 31st 2020",
+       x = "Day of the week",
+       y = "Mean ride length in seconds",
+       fill = "Type of rider")
+```
+
+For members, the mean ride length is stable throughout working days (Monday to Friday), which supports the previous assumption of people using the rides to go to work.  
+Additionally, the ride length increases on the weekends. It would make sense that members would use the bikes for leisure during the weekend, for longer rides. 
+
+As for casual members, the mean is changing a lot throughout the week. It looks like there is an increase trend from Monday to Friday, but the mean decreases on Saturday.
+
+
+
+### Compare of number of rides
+
+How many rides are there from each type of user throughout the week?
+
+```{r Compare number of rides, echo=TRUE, message=FALSE, warning=FALSE}
+all_trips_v3 %>%
+  group_by(day_of_week, member_casual) %>%
+  summarise(number_of_rides = n(),
+            mean_ride_length_seconds = mean(ride_length_seconds))
+```
+
+
+Again, we can visualize the results in a grouped bar chart:
+
+
+```{r Number of rides bar chart, echo=TRUE, message=FALSE, warning=FALSE}
+all_trips_v3 %>%
+  group_by(day_of_week, member_casual) %>%
+  summarise(number_of_rides = n(),
+            mean_ride_length_seconds = mean(ride_length_seconds)) %>%
+  ggplot(aes(x = day_of_week, y = number_of_rides, fill = member_casual)) + 
+  geom_col(position = "dodge") +
+  labs(title = "Number of rides per type of rider throughout the week", 
+       caption = "Data from April 1st 2019 to March 31st 2020",
+       x = "Day of the week",
+       y = "Number of rides",
+       fill = "Type of rider")
+```
+
+We can see how members represent a bigger portion of users, with higher usage during the working week. Still, there is a great number of members riding on the weekends.  
+As for casual members, the quantity seems stable from Monday to Thursday, increasing on Friday and jumping during the weekend to even higher values. 
+
+
+
+## Next steps:
+
+* Export the summarized data to excel, to build visuals with more flexibility. 
+* Create the storyline, to put together a slide show. 
+* Craft 3 recommendations
+
